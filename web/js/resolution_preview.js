@@ -20,13 +20,17 @@ function calc(node) {
     tierLabel = "自定义尺寸";
   } else {
     const tier = byName(node, "resolution_tier")?.value || "1K";
-    const long = ({"1K":1024,"2K":2048,"4K":4096})[tier] || 1024;
     const selected = byName(node, "aspect_ratio")?.value || "1:1 方形";
     const [rw,rh] = RATIOS[selected] || [1,1];
-    if (rw >= rh) { w = long; h = Math.max(8, Math.round((long*rh/rw)/8)*8); }
-    else { h = long; w = Math.max(8, Math.round((long*rw/rh)/8)*8); }
     ratioLabel = `${rw}:${rh}`;
     tierLabel = tier;
+    if (tier === "Auto") {
+      w = rw; h = rh;
+    } else {
+      const long = ({"1K":1024,"1.5K":1536,"2K":2048,"4K":4096})[tier] || 1024;
+      if (rw >= rh) { w = long; h = Math.max(8, Math.round((long*rh/rw)/8)*8); }
+      else { h = long; w = Math.max(8, Math.round((long*rw/rh)/8)*8); }
+    }
   }
   return {w,h,ratioLabel,tierLabel,mode};
 }
@@ -35,15 +39,16 @@ function refresh(node) {
   const el = node.__resolutionPreview;
   if (!el) return;
   const {w,h,ratioLabel,tierLabel,mode} = calc(node);
+  const isAuto = mode !== "手动自定义尺寸" && tierLabel === "Auto";
   const maxW = 190, maxH = 118;
   const scale = Math.min(maxW / Math.max(w,1), maxH / Math.max(h,1));
   const rw = Math.max(24, w*scale), rh = Math.max(24, h*scale);
   el.querySelector(".oib-shape").style.width = `${rw}px`;
   el.querySelector(".oib-shape").style.height = `${rh}px`;
-  el.querySelector(".oib-ratio").textContent = `画幅比例  ${ratioLabel}`;
-  el.querySelector(".oib-dims").textContent = `${Math.round(w)} × ${Math.round(h)} px`;
-  el.querySelector(".oib-meta").textContent = `${tierLabel} · ${(w*h/1e6).toFixed(2)} MP`;
-  el.querySelector(".oib-mode").textContent = mode === "手动自定义尺寸" ? "手动输入" : "比例预设";
+  el.querySelector(".oib-ratio").textContent = `${isAuto ? "参考画幅比例" : "画幅比例"}  ${ratioLabel}`;
+  el.querySelector(".oib-dims").textContent = isAuto ? "Auto · 模型自动决定尺寸" : `${Math.round(w)} × ${Math.round(h)} px`;
+  el.querySelector(".oib-meta").textContent = isAuto ? "Auto · 不限定输出像素尺寸" : `${tierLabel} · ${(w*h/1e6).toFixed(2)} MP`;
+  el.querySelector(".oib-mode").textContent = mode === "手动自定义尺寸" ? "手动输入" : (isAuto ? "自动尺寸" : "比例预设");
 }
 
 app.registerExtension({

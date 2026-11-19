@@ -23,9 +23,9 @@
   - `Images API`：请求 `/v1/images/generations`；连接 `input_image` 后改用 `/v1/images/edits`
   - `Chat Completions`：请求 `/v1/chat/completions`，适合通过聊天接口封装 Nano Banana 的服务商
 - `output_format`：`png / jpeg / webp / gif / svg`
-- `resolution_tier`：标准分辨率档位 `1K / 2K / 4K`，以长边作为目标像素长度。
+- `resolution_tier`：标准分辨率档位 `Auto / 1K / 1.5K / 2K / 4K`，以长边作为目标像素长度。
 - `aspect_ratio`：常用比例预设：`1:1`、`3:2`、`2:3`、`4:3`、`3:4`、`16:9`、`9:16`、`5:4`、`4:5`、`21:9`。
-- 插件会按档位和比例自动计算目标宽高，短边按 8 像素对齐。例如 1K 16:9 为 `1024x576`，2K 9:16 为 `1152x2048`，4K 1:1 为 `4096x4096`。
+- 选择具体档位时，插件会按档位和比例自动计算目标宽高，短边按 8 像素对齐；选择 `Auto` 时由模型自行决定输出尺寸。例如 1K 16:9 为 `1024x576`，2K 9:16 为 `1152x2048`，4K 1:1 为 `4096x4096`。
 - `final_resolution` 输出会同时显示目标分辨率和 API 实际返回分辨率；可连接 ComfyUI 的 Show Text / 文本显示节点查看。
 - `quality`：`auto / low / medium / high / xhigh / max`
 - `background`：`auto / opaque / transparent`
@@ -96,7 +96,7 @@ pip install cairosvg
 - API Mode：`Chat Completions`
 - Model：填写服务商给出的 Nano Banana 模型 ID
 - `send_modalities`：开启
-- `send_image_options`：若网关支持 `image_config` 参数约定则开启；插件会自动填入所选比例和 1K/2K/4K 档位。若网关参数结构不同，可关闭此项并通过 `extra_parameters_json` 自行设置，例如：
+- `send_image_options`：若网关支持 `image_config` 参数约定则开启；插件会自动填入所选比例和 Auto/1K/1.5K/2K/4K 档位。若网关参数结构不同，可关闭此项并通过 `extra_parameters_json` 自行设置，例如：
 
 ```json
 {
@@ -149,3 +149,11 @@ pip install cairosvg
 - 新增「预设档位与比例 / 手动自定义尺寸」模式。
 - 自定义宽高范围为 64–8192，步进 8；需为 8 的倍数。
 - ComfyUI 画布上的 IMAGE 仍显示生成结果；预览框仅用于设置时查看目标画幅。
+
+
+## v1.0.4 分辨率档位补充
+
+- 新增 `1.5K` 档位，以长边 1536 px 为目标尺寸。
+- 新增独立 `Auto` 尺寸档位：Images API 使用 `size: "auto"`，由模型决定实际输出尺寸。
+- Chat Completions 开启 `send_image_options` 时，会在 `image_config.image_size` 中传递 `AUTO`，并保留所选比例作为网关提示。
+- 实时预览在 Auto 模式下显示「模型自动决定尺寸」，比例仅作为参考，不再伪造具体像素数。

@@ -341,7 +341,7 @@ _ASPECT_RATIOS = {
 
 def _resolution_for_preset(tier: str, aspect_label: str) -> Tuple[int, int]:
     """Use the selected tier as the long-edge target; round the short edge to 8px."""
-    long_edge = {"1K": 1024, "2K": 2048, "4K": 4096}.get(str(tier).upper())
+    long_edge = {"1K": 1024, "1.5K": 1536, "2K": 2048, "4K": 4096}.get(str(tier).upper())
     if not long_edge:
         raise ValueError(f"未知分辨率档位：{tier}")
     if aspect_label not in _ASPECT_RATIOS:
@@ -405,7 +405,7 @@ class OpenAICompatibleImageGenerate:
                 "api_mode": (["Images API", "Chat Completions"], {"default": "Images API"}),
                 "output_format": (["png", "jpeg", "webp", "gif", "svg"], {"default": "png"}),
                 "resolution_mode": (["预设档位与比例", "手动自定义尺寸"], {"default": "预设档位与比例"}),
-                "resolution_tier": (["1K", "2K", "4K"], {"default": "1K"}),
+                "resolution_tier": (["Auto", "1K", "1.5K", "2K", "4K"], {"default": "1K"}),
                 "aspect_ratio": (list(_ASPECT_RATIOS.keys()), {"default": "1:1 方形"}),
                 "custom_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                 "custom_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
@@ -505,10 +505,16 @@ class OpenAICompatibleImageGenerate:
             resolved_ratio = f"{target_width // gcd}:{target_height // gcd}"
             resolution_label = f"自定义 / {resolved_ratio}"
         else:
-            target_width, target_height = _resolution_for_preset(resolution_tier, aspect_ratio)
             resolved_ratio = aspect_ratio.split(" ", 1)[0]
-            resolution_label = f"{resolution_tier} / {resolved_ratio}"
-        resolved_size = f"{target_width}x{target_height}"
+            if str(resolution_tier).strip().lower() == "auto":
+                # Let the image model choose its output dimensions. Keep the
+                # selected ratio as a provider hint for Chat Completions only.
+                target_width = target_height = None
+                resolution_label = f"Auto / {resolved_ratio}"
+            else:
+                target_width, target_height = _resolution_for_preset(resolution_tier, aspect_ratio)
+                resolution_label = f"{resolution_tier} / {resolved_ratio}"
+        resolved_size = "auto" if target_width is None else f"{target_width}x{target_height}"
         fmt = output_format.lower().strip()
         if fmt not in {"png", "jpeg", "webp", "gif", "svg"}:
             raise ValueError(f"不支持的输出格式：{output_format}")
