@@ -404,8 +404,11 @@ class OpenAICompatibleImageGenerate:
                 "model": ("STRING", {"default": "gpt-image-2.6-sunburst", "multiline": False}),
                 "api_mode": (["Images API", "Chat Completions"], {"default": "Images API"}),
                 "output_format": (["png", "jpeg", "webp", "gif", "svg"], {"default": "png"}),
+                "resolution_mode": (["预设档位与比例", "手动自定义尺寸"], {"default": "预设档位与比例"}),
                 "resolution_tier": (["1K", "2K", "4K"], {"default": "1K"}),
                 "aspect_ratio": (list(_ASPECT_RATIOS.keys()), {"default": "1:1 方形"}),
+                "custom_width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "custom_height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
                 "quality": (["auto", "low", "medium", "high", "xhigh", "max"], {"default": "auto"}),
                 "background": (["auto", "opaque", "transparent"], {"default": "auto"}),
                 "n": ("INT", {"default": 1, "min": 1, "max": 8, "step": 1}),
@@ -448,8 +451,11 @@ class OpenAICompatibleImageGenerate:
         model,
         api_mode,
         output_format,
+        resolution_mode,
         resolution_tier,
         aspect_ratio,
+        custom_width,
+        custom_height,
         quality,
         background,
         n,
@@ -488,7 +494,20 @@ class OpenAICompatibleImageGenerate:
             headers["Authorization"] = f"Bearer {api_key}"
 
         extra_parameters = _json_object(extra_parameters_json, "额外请求参数")
-        target_width, target_height = _resolution_for_preset(resolution_tier, aspect_ratio)
+        if resolution_mode == "手动自定义尺寸":
+            target_width = int(custom_width)
+            target_height = int(custom_height)
+            if not (64 <= target_width <= 8192 and 64 <= target_height <= 8192):
+                raise ValueError("自定义宽高必须在 64 至 8192 像素之间。")
+            if target_width % 8 or target_height % 8:
+                raise ValueError("自定义宽高必须是 8 的倍数，以提高图片接口兼容性。")
+            gcd = __import__("math").gcd(target_width, target_height)
+            resolved_ratio = f"{target_width // gcd}:{target_height // gcd}"
+            resolution_label = f"自定义 / {resolved_ratio}"
+        else:
+            target_width, target_height = _resolution_for_preset(resolution_tier, aspect_ratio)
+            resolved_ratio = aspect_ratio.split(" ", 1)[0]
+            resolution_label = f"{resolution_tier} / {resolved_ratio}"
         resolved_size = f"{target_width}x{target_height}"
         fmt = output_format.lower().strip()
         if fmt not in {"png", "jpeg", "webp", "gif", "svg"}:
@@ -588,8 +607,8 @@ class OpenAICompatibleImageGenerate:
                 # Common Nano Banana / Gemini gateway convention. Some gateways
                 # use image_config.image_size + aspect_ratio rather than size.
                 payload["image_config"] = {
-                    "aspect_ratio": aspect_ratio.split(" ", 1)[0],
-                    "image_size": str(resolution_tier).upper(),
+                    "aspect_ratio": resolved_ratio,
+                    "image_size": str(resolution_tier).upper() if resolution_mode != "手动自定义尺寸" else resolved_size,
                 }
             payload.update(extra_parameters)
             request_headers = dict(headers)
@@ -633,7 +652,7 @@ class OpenAICompatibleImageGenerate:
         actual_sizes = sorted({f"{img.width}x{img.height}" for img in pil_images})
         actual_text = ", ".join(actual_sizes)
         resolution_report = (
-            f"目标分辨率：{resolved_size}（{resolution_tier} / {aspect_ratio.split(' ', 1)[0]}）\n"
+            f"目标分辨率：{resolved_size}（{resolution_label}）\n"
             f"实际返回分辨率：{actual_text}"
         )
         return (images_tensor, masks_tensor, "\n".join(saved_paths), resolution_report)
