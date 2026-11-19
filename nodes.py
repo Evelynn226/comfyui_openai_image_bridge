@@ -395,6 +395,16 @@ class OpenAICompatibleImageGenerate:
     FUNCTION = "generate"
     CATEGORY = "AI 图片生成/OpenAI 兼容"
 
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        """Never reuse a previous generation result from ComfyUI's execution cache.
+
+        Image generation is an action: even when prompt and settings are unchanged,
+        queueing the workflow again must issue a fresh API request. NaN is treated
+        by ComfyUI as always changed.
+        """
+        return float("NaN")
+
     def generate(
         self,
         api_config,
