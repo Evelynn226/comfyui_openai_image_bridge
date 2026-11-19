@@ -322,6 +322,41 @@ def _response_error(response: requests.Response) -> str:
 
 
 # -----------------------------------------------------------------------------
+# Resolution presets
+# -----------------------------------------------------------------------------
+
+_ASPECT_RATIOS = {
+    "1:1 方形": (1, 1),
+    "3:2 横向照片": (3, 2),
+    "2:3 纵向照片": (2, 3),
+    "4:3 横向": (4, 3),
+    "3:4 纵向": (3, 4),
+    "16:9 横屏": (16, 9),
+    "9:16 竖屏": (9, 16),
+    "5:4 横向": (5, 4),
+    "4:5 竖向": (4, 5),
+    "21:9 超宽屏": (21, 9),
+}
+
+
+def _resolution_for_preset(tier: str, aspect_label: str) -> Tuple[int, int]:
+    """Use the selected tier as the long-edge target; round the short edge to 8px."""
+    long_edge = {"1K": 1024, "2K": 2048, "4K": 4096}.get(str(tier).upper())
+    if not long_edge:
+        raise ValueError(f"未知分辨率档位：{tier}")
+    if aspect_label not in _ASPECT_RATIOS:
+        raise ValueError(f"未知图片比例：{aspect_label}")
+    rw, rh = _ASPECT_RATIOS[aspect_label]
+    if rw >= rh:
+        width = long_edge
+        height = max(8, int(round((long_edge * rh / rw) / 8) * 8))
+    else:
+        height = long_edge
+        width = max(8, int(round((long_edge * rw / rh) / 8) * 8))
+    return width, height
+
+
+# -----------------------------------------------------------------------------
 # Nodes
 # -----------------------------------------------------------------------------
 
@@ -369,7 +404,8 @@ class OpenAICompatibleImageGenerate:
                 "model": ("STRING", {"default": "gpt-image-2.6-sunburst", "multiline": False}),
                 "api_mode": (["Images API", "Chat Completions"], {"default": "Images API"}),
                 "output_format": (["png", "jpeg", "webp", "gif", "svg"], {"default": "png"}),
-                "size": ("STRING", {"default": "auto", "multiline": False}),
+                "resolution_tier": (["1K", "2K", "4K"], {"default": "1K"}),
+                "aspect_ratio": (list(_ASPECT_RATIOS.keys()), {"default": "1:1 方形"}),
                 "quality": (["auto", "low", "medium", "high", "xhigh", "max"], {"default": "auto"}),
                 "background": (["auto", "opaque", "transparent"], {"default": "auto"}),
                 "n": ("INT", {"default": 1, "min": 1, "max": 8, "step": 1}),
@@ -390,8 +426,8 @@ class OpenAICompatibleImageGenerate:
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
-    RETURN_NAMES = ("images", "masks", "saved_files")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
+    RETURN_NAMES = ("images", "masks", "saved_files", "final_resolution")
     FUNCTION = "generate"
     CATEGORY = "AI 图片生成/OpenAI 兼容"
 
@@ -412,7 +448,8 @@ class OpenAICompatibleImageGenerate:
         model,
         api_mode,
         output_format,
-        size,
+        resolution_tier,
+        aspect_ratio,
         quality,
         background,
         n,
@@ -451,6 +488,8 @@ class OpenAICompatibleImageGenerate:
             headers["Authorization"] = f"Bearer {api_key}"
 
         extra_parameters = _json_object(extra_parameters_json, "额外请求参数")
+        target_width, target_height = _resolution_for_preset(resolution_tier, aspect_ratio)
+        resolved_size = f"{target_width}x{target_height}"
         fmt = output_format.lower().strip()
         if fmt not in {"png", "jpeg", "webp", "gif", "svg"}:
             raise ValueError(f"不支持的输出格式：{output_format}")
@@ -471,7 +510,7 @@ class OpenAICompatibleImageGenerate:
                 "model": model,
                 "prompt": prompt,
                 "n": int(n),
-                "size": (size or "auto").strip() or "auto",
+                "size": resolved_size,
                 "quality": quality,
                 "output_format": fmt,
                 "background": background,
@@ -543,10 +582,15 @@ class OpenAICompatibleImageGenerate:
             # image_config should be supplied through extra_parameters_json.
             if send_image_options:
                 payload["output_format"] = fmt
-                if (size or "auto").strip().lower() != "auto":
-                    payload["size"] = (size or "").strip()
+                payload["size"] = resolved_size
                 if quality != "auto":
                     payload["quality"] = quality
+                # Common Nano Banana / Gemini gateway convention. Some gateways
+                # use image_config.image_size + aspect_ratio rather than size.
+                payload["image_config"] = {
+                    "aspect_ratio": aspect_ratio.split(" ", 1)[0],
+                    "image_size": str(resolution_tier).upper(),
+                }
             payload.update(extra_parameters)
             request_headers = dict(headers)
             request_headers["Content-Type"] = "application/json"
@@ -586,7 +630,13 @@ class OpenAICompatibleImageGenerate:
             pil_images.append(_raw_to_pil(raw, ext))
 
         images_tensor, masks_tensor = _pil_to_comfy(pil_images)
-        return (images_tensor, masks_tensor, "\n".join(saved_paths))
+        actual_sizes = sorted({f"{img.width}x{img.height}" for img in pil_images})
+        actual_text = ", ".join(actual_sizes)
+        resolution_report = (
+            f"目标分辨率：{resolved_size}（{resolution_tier} / {aspect_ratio.split(' ', 1)[0]}）\n"
+            f"实际返回分辨率：{actual_text}"
+        )
+        return (images_tensor, masks_tensor, "\n".join(saved_paths), resolution_report)
 
 
 NODE_CLASS_MAPPINGS = {
